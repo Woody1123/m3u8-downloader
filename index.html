@@ -394,7 +394,8 @@
     <template v-if="!downloading">
       <div @click="getM3U8(false)">原格式下载</div>
       <div @click="getMP4">转码为MP4下载</div>
-      <div @click="crossRequest">转码为MP4下载</div>
+      <div @click="crossRequest">跨域</div>
+      <div @click="getM3U8ByContent">根据m3u8内容获取</div>
     </template>
     <div v-else-if="finishNum === rangeDownload.targetSegment && rangeDownload.targetSegment > 0" class="disable">下载完成</div>
     <div v-else @click="togglePause">{{ isPause ? '恢复下载' : '暂停下载' }}</div>
@@ -417,7 +418,7 @@
     </section>
 
     <video id="player" class="video-js vjs-16-9 vjs-big-play-centered" controls preload="auto"  data-setup="{}">
-      <source src="mediaFileList" type="video/mp4">
+      <source id="playerSource" :src=m3contentUrl type="video/mp4">
       <p class="vjs-no-js">
       To view this video please enable JavaScript, and consider upgrading to a web browser that
       <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
@@ -453,6 +454,7 @@ new Vue({
     return {
       url: 'https://cdn10.hdzyk-video.com/20221122/13854_9407196a/1000k/hls/index.m3u8', // 在线链接
       m3content: '', // 在线链接
+      m3contentUrl: '', // 播放内容
       tips: 'm3u8 视频在线提取工具', // 顶部提示 
       title: '', // 视频标题
       isPause: false, // 是否暂停下载
@@ -712,6 +714,97 @@ new Vue({
       })
     },
 
+     // 根据m3u8内容获取在线文件
+     getM3U8ByContent(onlyGetRange) {
+      
+      if (this.downloading) {
+        alert('资源下载中，请稍后')
+        return
+      }
+
+      // 在下载页面才触发，代码注入的页面不需要校验
+      // 当前协议不一致，切换协议
+      if (location.href.indexOf('blog.luckly-mjw.cn') > -1 && this.url.indexOf(location.protocol) === -1) {
+        //alert('当前协议不一致，跳转至正确页面重新下载')
+        location.href = `${this.url.split(':')[0]}://blog.luckly-mjw.cn/tool-show/m3u8-downloader/index.html?source=${this.url}`
+        return
+      }
+
+      // 在下载页面才触发，修改页面 URL，携带下载路径，避免刷新后丢失
+      if (location.href.indexOf('blog.luckly-mjw.cn') > -1) {
+        window.history.replaceState(null, '', `${location.href.split('?')[0]}?source=${this.url}`)
+      }
+
+      this.title = new URL(this.url).searchParams.get('title') || this.title // 获取视频标题
+      this.tips = 'm3u8 文件下载中，请稍后'
+      this.beginTime = new Date()
+     
+          this.tsUrlList = []
+          this.finishList = []
+          m3u8Str = this.m3content
+          // 提取 ts 视频片段地址
+          m3u8Str.split(' ').forEach((item) => {
+            // if (/.(png|image|ts|jpg|mp4|jpeg)/.test(item)) {
+            if (/^[^#]/.test(item)) {
+              console.log(item)
+              this.tsUrlList.push(this.applyURL(item, this.url))
+              this.finishList.push({
+                title: item,
+                status: ''
+              })
+            }
+          })
+          // 仅获取视频片段数
+          if (onlyGetRange) {
+            this.rangeDownload.isShowRange = true
+            this.rangeDownload.endSegment = this.tsUrlList.length
+            this.rangeDownload.targetSegment = this.tsUrlList.length
+            return
+          } else {
+            let startSegment = Math.max(this.rangeDownload.startSegment || 1, 1) // 最小为 1
+            let endSegment = Math.max(this.rangeDownload.endSegment || this.tsUrlList.length, 1)
+            startSegment = Math.min(startSegment, this.tsUrlList.length) // 最大为 this.tsUrlList.length
+            endSegment = Math.min(endSegment, this.tsUrlList.length)
+            this.rangeDownload.startSegment = Math.min(startSegment, endSegment)
+            this.rangeDownload.endSegment = Math.max(startSegment, endSegment)
+            this.rangeDownload.targetSegment = this.rangeDownload.endSegment - this.rangeDownload.startSegment + 1
+            this.downloadIndex = this.rangeDownload.startSegment - 1
+            this.downloading = true
+          }
+
+          // 获取需要下载的 MP4 视频长度
+          if (this.isGetMP4) {
+            let infoIndex = 0
+            m3u8Str.split('\n').forEach(item => {
+              if (item.toUpperCase().indexOf('#EXTINF:') > -1) { // 计算视频总时长，设置 mp4 信息时使用
+                infoIndex++
+                if (this.rangeDownload.startSegment <= infoIndex && infoIndex <= this.rangeDownload.endSegment) {
+                  this.durationSecond += parseFloat(item.split('#EXTINF:')[1])
+                }
+              }
+            })
+          }
+
+          // 检测视频 AES 加密
+          if (m3u8Str.indexOf('#EXT-X-KEY') > -1) {
+            this.aesConf.method = (m3u8Str.match(/(.*METHOD=([^,\s]+))/) || ['', '', ''])[2]
+            this.aesConf.uri = (m3u8Str.match(/(.*URI="([^"]+))"/) || ['', '', ''])[2]
+            this.aesConf.iv = (m3u8Str.match(/(.*IV=([^,\s]+))/) || ['', '', ''])[2]
+            this.aesConf.iv = this.aesConf.iv ? this.aesConf.stringToBuffer(this.aesConf.iv) : ''
+            this.aesConf.uri = this.applyURL(this.aesConf.uri, this.url)
+
+            // let params = m3u8Str.match(/#EXT-X-KEY:([^,]*,?METHOD=([^,]+))?([^,]*,?URI="([^,]+)")?([^,]*,?IV=([^,^\n]+))?/)
+            // this.aesConf.method = params[2]
+            // this.aesConf.uri = this.applyURL(params[4], this.url)
+            // this.aesConf.iv = params[6] ? this.aesConf.stringToBuffer(params[6]) : ''
+            this.getAES();
+          } else if (this.tsUrlList.length > 0) { // 如果视频没加密，则直接下载片段，否则先下载秘钥
+            this.downloadTS()
+          } else {
+            this.alertError('资源为空，请查看链接是否有效')
+          }
+    },
+
     // 获取AES配置
     getAES() {
       // alert('视频被 AES 加密，点击确认，进行视频解码')
@@ -796,6 +889,7 @@ new Vue({
           if (this.streamDownloadIndex >= this.rangeDownload.targetSegment){
             this.streamWriter.close()
           }
+          this.getFileUrl(this.mediaFileList)
         } else if (this.finishNum === this.rangeDownload.targetSegment) {
           let fileName = this.title || this.formatTime(this.beginTime, 'YYYY_MM_DD hh_mm_ss')
           if(document.title !== 'm3u8 downloader'){
@@ -892,10 +986,32 @@ new Vue({
         a.download = fileName + '.ts'
       }
       a.href = URL.createObjectURL(fileBlob)
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      debugger
+      this.m3contentUrl = a.href
+      document.getElementById('playerSource').source = a.href
+      // a.style.display = 'none'
+      // document.body.appendChild(a)
+      // a.click()
+      // a.remove()
+    },
+
+    // 获取url
+    getFileUrl(fileDataList) {
+      this.tips = 'ts 碎片整合中，请留意浏览器下载'
+      let fileBlob = null
+      let a = document.createElement('a')
+      if (this.isGetMP4) {
+        fileBlob = new Blob(fileDataList, { type: 'video/mp4' }) // 创建一个Blob对象，并设置文件的 MIME 类型
+      } else {
+        fileBlob = new Blob(fileDataList, { type: 'video/MP2T' }) // 创建一个Blob对象，并设置文件的 MIME 类型
+      }
+      a.href = URL.createObjectURL(fileBlob)
+      this.m3contentUrl = a.href
+      document.getElementById('playerSource').source = a.href
+      // a.style.display = 'none'
+      // document.body.appendChild(a)
+      // a.click()
+      // a.remove()
     },
 
     // 格式化时间
