@@ -378,7 +378,8 @@
   <!--文件载入-->
   <div class="m-p-temp-url">测试链接：http://1257120875.vod2.myqcloud.com/0ef121cdvodtransgzp1257120875/3055695e5285890780828799271/v.f230.m3u8</div>
   <section class="m-p-input-container">
-    <input type="text" v-model="url" :disabled="downloading" placeholder="请输入 m3u8 链接">
+    <input type="text" v-model="url" :disabled="downloading" placeholder="请输入 m3u8 链接" value="https://cdn10.hdzyk-video.com/20221122/13854_9407196a/1000k/hls/index.m3u8">
+    <input type="text" v-model="m3content" placeholder="请输入 m3u8 内容" value="">
 
     <!--范围查询-->
     <template v-if="!downloading || rangeDownload.isShowRange">
@@ -393,6 +394,7 @@
     <template v-if="!downloading">
       <div @click="getM3U8(false)">原格式下载</div>
       <div @click="getMP4">转码为MP4下载</div>
+      <div @click="crossRequest">转码为MP4下载</div>
     </template>
     <div v-else-if="finishNum === rangeDownload.targetSegment && rangeDownload.targetSegment > 0" class="disable">下载完成</div>
     <div v-else @click="togglePause">{{ isPause ? '恢复下载' : '暂停下载' }}</div>
@@ -413,6 +415,14 @@
     <section class="m-p-segment">
       <div class="item" v-for="(item, index) in finishList" :class="[item.status]" :title="item.title" @click="retry(index)">{{ index + 1 }}</div>
     </section>
+
+    <video id="player" class="video-js vjs-16-9 vjs-big-play-centered" controls preload="auto"  data-setup="{}">
+      <source src="mediaFileList" type="video/mp4">
+      <p class="vjs-no-js">
+      To view this video please enable JavaScript, and consider upgrading to a web browser that
+      <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
+      </p>
+      </video>
   </template>
 </section>
 </body>
@@ -441,7 +451,8 @@ new Vue({
 
   data() {
     return {
-      url: '', // 在线链接
+      url: 'https://cdn10.hdzyk-video.com/20221122/13854_9407196a/1000k/hls/index.m3u8', // 在线链接
+      m3content: '', // 在线链接
       tips: 'm3u8 视频在线提取工具', // 顶部提示 
       title: '', // 视频标题
       isPause: false, // 是否暂停下载
@@ -575,6 +586,22 @@ new Vue({
       this.isGetMP4 = true
       this.getM3U8()
     },
+    crossRequest() {
+      this.ajax({
+        url: "http://localhost:8080/jdsoa/partner/projectStatistic",
+        crossDomain:true, //设置跨域为true
+        xhrFields: {
+            withCredentials: true //默认情况下，标准的跨域请求是不会发送cookie的
+        },
+        success: (m3u8Str) => {
+          this.tsUrlList = []
+          this.finishList = []
+        },
+        fail: (e) => {
+          this.alertError(e)
+        }
+      })
+    },
 
     // 获取在线文件
     getM3U8(onlyGetRange) {
@@ -609,12 +636,16 @@ new Vue({
       this.beginTime = new Date()
       this.ajax({
         url: this.url,
+        crossDomain:true, //设置跨域为true
+        xhrFields: {
+            withCredentials: true //默认情况下，标准的跨域请求是不会发送cookie的
+        },
         success: (m3u8Str) => {
           this.tsUrlList = []
           this.finishList = []
-
+          m3u8Str = this.m3content
           // 提取 ts 视频片段地址
-          m3u8Str.split('\n').forEach((item) => {
+          m3u8Str.split(' ').forEach((item) => {
             // if (/.(png|image|ts|jpg|mp4|jpeg)/.test(item)) {
             if (/^[^#]/.test(item)) {
               console.log(item)
@@ -625,7 +656,6 @@ new Vue({
               })
             }
           })
-
           // 仅获取视频片段数
           if (onlyGetRange) {
             this.rangeDownload.isShowRange = true
