@@ -395,7 +395,7 @@
       <div @click="getM3U8(false)">原格式下载</div>
       <div @click="getMP4">转码为MP4下载</div>
       <div @click="crossRequest">跨域</div>
-      <div @click="getM3U8ByContent">根据m3u8内容获取</div>
+      <div @click="getM3U8ByContent(false)">根据m3u8内容获取</div>
     </template>
     <div v-else-if="finishNum === rangeDownload.targetSegment && rangeDownload.targetSegment > 0" class="disable">下载完成</div>
     <div v-else @click="togglePause">{{ isPause ? '恢复下载' : '暂停下载' }}</div>
@@ -986,13 +986,10 @@ new Vue({
         a.download = fileName + '.ts'
       }
       a.href = URL.createObjectURL(fileBlob)
-      debugger
-      this.m3contentUrl = a.href
-      document.getElementById('playerSource').source = a.href
-      // a.style.display = 'none'
-      // document.body.appendChild(a)
-      // a.click()
-      // a.remove()
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
     },
 
     // 获取url
